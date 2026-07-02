@@ -320,6 +320,20 @@ h1{margin-top:clamp(18px,2.6vh,42px);font-size:clamp(44px,6vw,66px);line-height:
 .stage.looping .loopback .arc{stroke:rgba(143,192,255,.3);transition:stroke .45s}
 .stage.looping .loopback .arrow{fill:rgba(143,192,255,.8);transition:fill .45s}
 
+/* ---------- entrance choreography ---------- */
+.hw{display:inline-block;white-space:pre}
+.hch{display:inline-block;opacity:0;transform:translateY(.45em);filter:blur(10px)}
+body.entered .hch{opacity:1;transform:translateY(0);filter:blur(0);
+  transition:opacity .55s var(--e),transform .68s var(--e),filter .6s var(--e);
+  transition-delay:var(--hd,0ms);}
+.rise{opacity:0;transform:translateY(20px);filter:blur(6px)}
+.rise-lg{transform:translateY(30px)}
+body.entered .rise{opacity:1;transform:translateY(0);filter:blur(0);
+  transition:opacity .75s var(--e),transform .85s var(--e),filter .7s var(--e);
+  transition-delay:var(--ed,0ms);}
+.rise-bg{opacity:0}
+body.entered .rise-bg{opacity:1;transition:opacity 1.9s ease .1s}
+
 /* ---------- responsive ---------- */
 @media (max-width:900px){
   .stage{padding:16px 14px 8px}
@@ -931,11 +945,16 @@ function activate(vi){
   if (vi !== 1) reels.forEach(r=>{ const vd = r.querySelector("video"); if (vd) vd.pause(); });
 }
 function setView(vi, manual){
+  const pendingBoot = bootT.length > 0;
+  if (pendingBoot){ bootT.forEach(clearTimeout); bootT.length = 0; }
   if (manual){
     auto.paused = true; eprog.classList.add("off");
     clearTimeout(auto.resume);
     auto.resume = setTimeout(()=>{ auto.paused = false; eprog.classList.remove("off"); }, RESUME_AFTER);
-    if (vi === cur) return;
+    if (vi === cur){
+      if (pendingBoot){ activate(vi); setTimeout(()=>{ buildArc(); RUNS[vi](++token); }, 340); }
+      return;
+    }
   }
   cur = vi; token++;
   const tk = token;
@@ -1003,7 +1022,10 @@ function setWord(w, first){
 setWord(WORDS[0], true);
 if (!reduced){
   if (document.fonts && document.fonts.load)
-    document.fonts.load('600 60px "Instrument Sans"').then(()=>setWord(WORDS[wi], true)).catch(()=>{});
+    document.fonts.load('600 60px "Instrument Sans"').then(()=>{
+      meas.innerHTML = letterSpans(WORDS[wi]);
+      pref.style.width = meas.getBoundingClientRect().width + "px";
+    }).catch(()=>{});
   setInterval(()=>{ if (document.hidden) return; wi=(wi+1)%WORDS.length; setWord(WORDS[wi]); }, 3000);
 }
 
@@ -1079,6 +1101,77 @@ const dots = (()=>{
 })();
 if (reduced) dots.still(); else dots.start();
 
+/* ---------------- entrance choreography ---------------- */
+const bootT = [];
+(function entrance(){
+  if (reduced){ document.body.classList.add("entered"); return; }
+  const visual = document.querySelector("h1 > span");
+  const STAG = 22, HEAD_BASE = 160;
+  let idx = 0;
+  const chSpan = ch => {
+    const el = document.createElement("span");
+    el.className = "hch";
+    el.style.setProperty("--hd", (HEAD_BASE + idx++*STAG) + "ms");
+    el.textContent = ch;
+    return el;
+  };
+  /* heading: split direct text into word-wrapped char spans (morph span untouched here) */
+  [...visual.childNodes].forEach(node=>{
+    if (node.nodeType !== 3 || !node.textContent.trim()) return;
+    const frag = document.createDocumentFragment();
+    node.textContent.split(/(\s+)/).forEach(tok=>{
+      if (!tok) return;
+      if (/^\s+$/.test(tok)){ frag.appendChild(document.createTextNode(" ")); return; }
+      const w = document.createElement("span");
+      w.className = "hw";
+      [...tok].forEach(ch=>w.appendChild(chSpan(ch)));
+      frag.appendChild(w);
+    });
+    visual.replaceChild(frag, node);
+  });
+  /* the morph word's letters continue the same left-to-right sequence */
+  [...pref.children].forEach(c=>{
+    c.classList.add("hch");
+    c.style.setProperty("--hd", (HEAD_BASE + idx++*STAG) + "ms");
+  });
+  const suf = document.querySelector(".morph-suffix");
+  const sufTxt = suf.textContent;
+  suf.textContent = "";
+  [...sufTxt].forEach(ch=>suf.appendChild(chSpan(ch)));
+  /* everything else rises from below */
+  const RISERS = [[".badges",60],[".sub",600],[".cta",730],[".support",850],[".engine",980]];
+  RISERS.forEach(([sel,d])=>{
+    const el = document.querySelector(sel);
+    el.classList.add("rise");
+    if (sel === ".engine") el.classList.add("rise-lg");
+    el.style.setProperty("--ed", d + "ms");
+  });
+  document.querySelector(".bgfx").classList.add("rise-bg");
+  function beginShow(){
+    requestAnimationFrame(()=>requestAnimationFrame(()=>document.body.classList.add("entered")));
+    bootT.push(setTimeout(()=>{ activate(0); buildArc(); }, 1120));
+    bootT.push(setTimeout(()=>{ RUNS[0](++token); bootT.length = 0; }, 1500));
+    /* strip entrance scaffolding once settled so it can't fight the morph
+       or leave blur(0)/translateY(0) filters that would break backdrop-filter descendants */
+    setTimeout(()=>{
+      document.querySelectorAll(".hch").forEach(c=>{ c.classList.remove("hch"); c.style.removeProperty("--hd"); });
+      document.querySelectorAll(".rise,.rise-bg").forEach(el=>{
+        el.classList.remove("rise","rise-lg","rise-bg"); el.style.removeProperty("--ed");
+      });
+    }, 2600);
+  }
+  /* a background-tab load waits and plays the entrance when first seen */
+  if (document.visibilityState !== "hidden") beginShow();
+  else {
+    const once = ()=>{
+      if (document.visibilityState === "hidden") return;
+      document.removeEventListener("visibilitychange", once);
+      beginShow();
+    };
+    document.addEventListener("visibilitychange", once);
+  }
+})();
+
 /* ---------------- email capture ---------------- */
 const form = $("#ctaForm");
 form.addEventListener("submit", e=>{
@@ -1104,7 +1197,7 @@ window.addEventListener("resize", ()=>{
 document.addEventListener("visibilitychange", ()=>{
   if (reduced) return;
   if (document.hidden){ blob.stop(); dots.stop(); }
-  else { activate(cur); dots.start(); }
+  else { if (!bootT.length) activate(cur); dots.start(); }
 });
 moveThumb();
 if (reduced){
@@ -1112,8 +1205,6 @@ if (reduced){
   renderStatic(0); activate(0); eprog.classList.add("off");
 } else {
   resetView(0);
-  activate(0);
-  requestAnimationFrame(()=>{ buildArc(); RUNS[0](++token); });
 }
 })();
 </script>
